@@ -65,3 +65,14 @@ module Amber::CMD
     end
   end
 end
+
+class Array
+  def visible
+    if T.class.to_s == "Field" 
+      self.reject{|f| f.hidden }
+    else
+      self
+    end
+  end
+end
+
