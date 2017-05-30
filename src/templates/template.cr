@@ -6,6 +6,16 @@ require "./controller"
 require "./migration"
 require "./job"
 
+class Array
+  def visible
+    if T.class.to_s == "Field" 
+      self.reject{|f| f.hidden }
+    else
+      self
+    end
+  end
+end
+
 module Amber::CMD
   class Template
     getter name : String
