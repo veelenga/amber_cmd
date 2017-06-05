@@ -21,15 +21,19 @@ module Amber::CMD
       class Options
         arg "version", desc: "# New project version Eg. 1.2.0", required: true
         arg "msg", desc: "# Short release description", required: true
+
+        string ["-d", "--deploy"], desc: "# Deploy to cloud service: digitalocean | heroku | aws | azure", default: "digitalocean"
       end
 
-      def deploy(app)
-        `heroku plugins:install heroku-docker`
-        `heroku docker:start`
-        `heroku docker:exec crystal deps && make`
-        `heroku create "#{app}-amber"`
-        `heroku docker:release`
-        `heroku open`
+      def cloud_deploy(app_name, current_version)
+         app = "#{app_name}-#{current_version}"
+         puts "Deploying #{app}"
+         config = YAML.parse(File.read("./.amber.yml"))
+         digitalocean = config["digitalocean"]
+         puts "Creating docker machine: #{app.colorize(:blue)}"
+        `docker-machine create #{app} --driver=digitalocean --digitalocean-access-token=#{digitalocean["token"]}`
+         puts "Done creating machine!"
+         `docker-machine env #{app}`
       end
 
       def release
@@ -55,6 +59,7 @@ module Amber::CMD
 
         `git add .`
         `git commit -am "#{message}"`
+        `git push -f`
 
         puts "git tag -a v#{new_version} -m \"#{name}: v#{new_version}\"".colorize(:yellow)
 
@@ -62,7 +67,10 @@ module Amber::CMD
 
         puts "git push origin v#{new_version}".colorize(:yellow)
         `git push origin v#{new_version}`
-        deploy(name)
+
+        puts "Releasing app #{name}-#{new_version}"
+
+        cloud_deploy(name, new_version)
       end
     end
   end
