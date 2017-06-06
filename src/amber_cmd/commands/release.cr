@@ -9,6 +9,7 @@ module Amber::CMD
 
     class Console < Cli::Command
       command_name "release"
+      property server_name : String?
 
       def run
         release
@@ -25,15 +26,18 @@ module Amber::CMD
         string ["-d", "--deploy"], desc: "# Deploy to cloud service: digitalocean | heroku | aws | azure", default: "digitalocean"
       end
 
-      def cloud_deploy(app_name, current_version)
-         app = "#{app_name}-#{current_version}"
-         puts "Deploying #{app}"
-         config = YAML.parse(File.read("./.amber.yml"))
-         digitalocean = config["digitalocean"]
-         puts "Creating docker machine: #{app.colorize(:blue)}"
-        `docker-machine create #{app} --driver=digitalocean --digitalocean-access-token=#{digitalocean["token"]}`
-         puts "Done creating machine!"
-         `docker-machine env #{app}`
+      def create_cloud_server(app_name, current_version)
+        puts "Deploying #{@server_name}"
+        config = YAML.parse(File.read("./.amber.yml"))
+        digitalocean = config["digitalocean"]
+        puts "Creating docker machine: #{@server_name.colorize(:blue)}"
+        `docker-machine create #{@server_name} --driver=digitalocean --digitalocean-access-token=#{digitalocean["token"]}`
+        puts "Done creating machine!"
+        `docker-machine env #{@server_name}`
+      end
+
+      def create_swapfile
+        docker-machine ssh docker-crystal1 "dd if=/dev/zero of=/swapfile bs=2k count=1024k && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && bash -c \"echo '/swapfile       none    swap    sw      0       0 ' >> /etc/fstab\""
       end
 
       def release
@@ -42,16 +46,17 @@ module Amber::CMD
         shard = YAML.parse(File.read("./shard.yml"))
         name = shard["name"].to_s
         version = shard["version"].to_s
+        @server_name = "#{app_name}-#{current_version}"
 
         files = {
-            "shard.yml" => "version: #{version}",
-            "src/#{name}/version.cr" => %Q(  VERSION = "#{version})
+          "shard.yml"              => "version: #{version}",
+          "src/#{name}/version.cr" => %Q(  VERSION = "#{version}),
         }
 
         files.each do |filename, version_str|
-            puts "Updating version numbers in #{filename}.".colorize(:light_magenta)
-            file_string = File.read(filename).gsub(version_str, version_str.gsub(version, new_version))
-            File.write(filename, file_string)
+          puts "Updating version numbers in #{filename}.".colorize(:light_magenta)
+          file_string = File.read(filename).gsub(version_str, version_str.gsub(version, new_version))
+          File.write(filename, file_string)
         end
 
         message = "Bumped version number to v#{new_version}." unless message = ARGV[1]?
@@ -71,6 +76,7 @@ module Amber::CMD
         puts "Releasing app #{name}-#{new_version}"
 
         cloud_deploy(name, new_version)
+        add_swapfile
       end
     end
   end
