@@ -10,6 +10,7 @@ module Amber::CMD
     class Console < Cli::Command
       command_name "release"
       property server_name : String?
+      property project_name : String?
 
       def run
         release
@@ -36,21 +37,41 @@ module Amber::CMD
         `docker-machine env #{@server_name}`
       end
 
+      def remote_cmd(cmd)
+        `docker-docker ssh #{server_name} #{cmd}`
+      end
+
       def create_swapfile
-        docker-machine ssh docker-crystal1 "dd if=/dev/zero of=/swapfile bs=2k count=1024k && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && bash -c \"echo '/swapfile       none    swap    sw      0       0 ' >> /etc/fstab\""
+        cmds = ["dd if=/dev/zero of=/swapfile bs=2k count=1024k"]
+        cmds << "chmod 600 /swapfile"
+        cmds << "mkswap /swapfile"
+        cmds << "swapon /swapfile"
+        cmds << "bash -c \"echo '/swapfile       none    swap    sw      0       0 ' >> /etc/fstab\""
+        remote_cmd(cmds.join(" && "))
+      end
+
+      def checkout_project
+        remote_cmd("apt-get install git")
+        puts "please enter repo to deploy from" 
+        puts "example: https://username:password@github.com/you/project.git"
+        repo = gets.strip
+        remote_cmd("git clone #{repo}")
+      end
+
+      def update_project
+        remote_cmd(%Q("cd #{project_name} && git pull"))
       end
 
       def release
         new_version = args.version
         message = args.msg
         shard = YAML.parse(File.read("./shard.yml"))
-        name = shard["name"].to_s
+        @project_name = shard["name"].to_s
         version = shard["version"].to_s
-        @server_name = "#{app_name}-#{current_version}"
+        @server_name = "#{project_name}-#{current_version}"
 
         files = {
-          "shard.yml"              => "version: #{version}",
-          "src/#{name}/version.cr" => %Q(  VERSION = "#{version}),
+          "shard.yml" => "version: #{version}"
         }
 
         files.each do |filename, version_str|
@@ -77,6 +98,8 @@ module Amber::CMD
 
         cloud_deploy(name, new_version)
         add_swapfile
+        checkout_project
+        `docker-compose up -f production -d`
       end
     end
   end
