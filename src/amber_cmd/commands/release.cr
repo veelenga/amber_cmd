@@ -2,6 +2,7 @@ require "icr"
 require "cli"
 require "yaml"
 require "colorize"
+require "io/console"
 
 module Amber::CMD
   class MainCommand < Cli::Supercommand
@@ -27,39 +28,63 @@ module Amber::CMD
         string ["-d", "--deploy"], desc: "# Deploy to cloud service: digitalocean | heroku | aws | azure", default: "digitalocean"
       end
 
-      def create_cloud_server(app_name, current_version)
+      def getsecret(prompt : (String | Nil) = nil)
+        print "#{prompt}:" if prompt
+        password = STDIN.noecho(&.gets).try(&.chomp)
+        puts
+        password
+      end
+
+      def create_cloud_server(current_version)
         puts "Deploying #{@server_name}"
-        config = YAML.parse(File.read("./.amber.yml"))
-        digitalocean = config["digitalocean"]
         puts "Creating docker machine: #{@server_name.colorize(:blue)}"
-        `docker-machine create #{@server_name} --driver=digitalocean --digitalocean-access-token=#{digitalocean["token"]}`
+        do_token = getsecret("DigitalOcean Token")
+        `docker-machine create #{@server_name} --driver=digitalocean --digitalocean-access-token=#{do_token}`
         puts "Done creating machine!"
-        `docker-machine env #{@server_name}`
       end
 
       def remote_cmd(cmd)
-        `docker-docker ssh #{server_name} #{cmd}`
+        `docker-machine ssh #{server_name} #{cmd}`
       end
 
       def create_swapfile
         cmds = ["dd if=/dev/zero of=/swapfile bs=2k count=1024k"]
-        cmds << "chmod 600 /swapfile"
         cmds << "mkswap /swapfile"
+        cmds << "chmod 600 /swapfile"
         cmds << "swapon /swapfile"
         cmds << "bash -c \"echo '/swapfile       none    swap    sw      0       0 ' >> /etc/fstab\""
-        remote_cmd(cmds.join(" && "))
+        remote_cmd(%Q("#{cmds.join(" && ")}"))
       end
 
       def checkout_project
         remote_cmd("apt-get install git")
-        puts "please enter repo to deploy from" 
+        puts "please enter repo to deploy from"
         puts "example: https://username:password@github.com/you/project.git"
-        repo = gets.strip
-        remote_cmd("git clone #{repo}")
+        repo = getsecret("repo:")
+        remote_cmd("git clone #{repo} amberproject")
+        remote_cmd("cp -rf amberproject/* ./")
+      end
+
+      def deploy_project
+        puts "deploying project"
+        remote_cmd "docker network create --driver bridge ambernet"
+        remote_cmd "docker build -t amberimage ."
+        remote_cmd "docker run -it --name amberdb -v db_volume:/var/lib/postgres/data --network=ambernet -e POSTGRES_USER=admin -e POSTGRES_PASSWORD=password -e POSTGRES_DB=crystaldo_development -d postgres"
+        remote_cmd "docker run -it --name amberweb -v .:/app/user -p 3000:3000 --network=ambernet -e DATABASE_URL=postgres://admin:password@amberdb:5432/crystaldo_development -d amberimage"
+        remote_cmd "docker exec -it -d amberweb amber g up"
+        remote_cmd "docker exec -it -d amberweb amber watch" 
+      end
+
+      def stop_and_remove
+        cmds = ["docker stop amberweb"]
+        cmds << "docker rm amberweb"
+        cmds << "docker stop amberdb"
+        cmds << "docker rm amberdb"
+        remote_cmd(cmds.join(" && "))
       end
 
       def update_project
-        remote_cmd(%Q("cd #{project_name} && git pull"))
+        remote_cmd(%Q("cd amberproject && git pull"))
       end
 
       def release
@@ -68,38 +93,38 @@ module Amber::CMD
         shard = YAML.parse(File.read("./shard.yml"))
         @project_name = shard["name"].to_s
         version = shard["version"].to_s
-        @server_name = "#{project_name}-#{current_version}"
+        @server_name = "#{project_name}-#{version}"
 
-        files = {
-          "shard.yml" => "version: #{version}"
-        }
+        # files = {
+        #   "shard.yml" => "version: #{version}",
+        # }
+        #
+        # files.each do |filename, version_str|
+        #   puts "Updating version numbers in #{filename}.".colorize(:light_magenta)
+        #   file_string = File.read(filename).gsub(version_str, version_str.gsub(version, new_version))
+        #   File.write(filename, file_string)
+        # end
+        #
+        # message = "Bumped version number to v#{new_version}." unless message = ARGV[1]?
+        # puts "git commit -am \"#{message}\"".colorize(:yellow)
 
-        files.each do |filename, version_str|
-          puts "Updating version numbers in #{filename}.".colorize(:light_magenta)
-          file_string = File.read(filename).gsub(version_str, version_str.gsub(version, new_version))
-          File.write(filename, file_string)
-        end
+        # `git add .`
+        # `git commit -am "#{message}"`
+        # `git push -f`
+        #
+        # puts "git tag -a v#{new_version} -m \"#{@project_name}: v#{new_version}\"".colorize(:yellow)
+        #
+        # `git tag -a v#{new_version} -m "#{@name}: v#{new_version}"`
+        #
+        # puts "git push origin v#{new_version}".colorize(:yellow)
+        # `git push origin v#{new_version}`
 
-        message = "Bumped version number to v#{new_version}." unless message = ARGV[1]?
-        puts "git commit -am \"#{message}\"".colorize(:yellow)
+        puts "Releasing app #{project_name}-#{new_version}"
 
-        `git add .`
-        `git commit -am "#{message}"`
-        `git push -f`
-
-        puts "git tag -a v#{new_version} -m \"#{name}: v#{new_version}\"".colorize(:yellow)
-
-        `git tag -a v#{new_version} -m "#{name}: v#{new_version}"`
-
-        puts "git push origin v#{new_version}".colorize(:yellow)
-        `git push origin v#{new_version}`
-
-        puts "Releasing app #{name}-#{new_version}"
-
-        cloud_deploy(name, new_version)
-        add_swapfile
+        create_cloud_server(new_version)
+        create_swapfile
         checkout_project
-        `docker-compose up -f production -d`
+        deploy_project
       end
     end
   end
