@@ -23,13 +23,13 @@ module Amber::CMD
 
       class Options
         arg "version", desc: "# New project version Eg. 1.2.0", required: true
-        arg "msg", desc: "# Short release description", required: true
+        arg "msg", desc: "# Short release description", default: "Bumping" 
 
         string ["-d", "--deploy"], desc: "# Deploy to cloud service: digitalocean | heroku | aws | azure", default: "digitalocean"
       end
 
       def getsecret(prompt : (String | Nil) = nil)
-        print "#{prompt}:" if prompt
+        puts "#{prompt}:"
         password = STDIN.noecho(&.gets).try(&.chomp)
         puts
         password
@@ -38,7 +38,7 @@ module Amber::CMD
       def create_cloud_server(current_version)
         puts "Deploying #{@server_name}"
         puts "Creating docker machine: #{@server_name.colorize(:blue)}"
-        do_token = getsecret("DigitalOcean Token")
+        do_token = ENV["DOTOKEN"]? || getsecret("DigitalOcean Token")
         `docker-machine create #{@server_name} --driver=digitalocean --digitalocean-access-token=#{do_token}`
         puts "Done creating machine!"
       end
@@ -52,35 +52,35 @@ module Amber::CMD
         cmds << "mkswap /swapfile"
         cmds << "chmod 600 /swapfile"
         cmds << "swapon /swapfile"
-        cmds << "bash -c \"echo '/swapfile       none    swap    sw      0       0 ' >> /etc/fstab\""
         remote_cmd(%Q("#{cmds.join(" && ")}"))
+        remote_cmd("bash -c \"echo '/swapfile       none    swap    sw      0       0 ' >> /etc/fstab\"")
       end
 
       def checkout_project
         remote_cmd("apt-get install git")
         puts "please enter repo to deploy from"
         puts "example: https://username:password@github.com/you/project.git"
-        repo = getsecret("repo:")
+        repo = ENV["REPO"]? || getsecret("repo:")
         remote_cmd("git clone #{repo} amberproject")
-        remote_cmd("cp -rf amberproject/* ./")
       end
 
       def deploy_project
         puts "deploying project"
         remote_cmd "docker network create --driver bridge ambernet"
-        remote_cmd "docker build -t amberimage ."
+        remote_cmd "docker build -t amberimage amberproject"
         remote_cmd "docker run -it --name amberdb -v db_volume:/var/lib/postgres/data --network=ambernet -e POSTGRES_USER=admin -e POSTGRES_PASSWORD=password -e POSTGRES_DB=crystaldo_development -d postgres"
-        remote_cmd "docker run -it --name amberweb -v .:/app/user -p 3000:3000 --network=ambernet -e DATABASE_URL=postgres://admin:password@amberdb:5432/crystaldo_development -d amberimage"
-        remote_cmd "docker exec -it -d amberweb amber g up"
-        remote_cmd "docker exec -it -d amberweb amber watch" 
+        remote_cmd "docker run -it --name amberweb -v amberproject:/app/user -p 80:3000 --network=ambernet -e DATABASE_URL=postgres://admin:password@amberdb:5432/crystaldo_development -d amberimage"
+        remote_cmd "docker exec -itd amberweb amber migrate up"
+        remote_cmd "docker exec -itd amberweb crystal build src/#{project_name}.cr" 
+        remote_cmd %Q(docker exec -itd amberweb crystal src/#{project_name}.cr)
       end
 
       def stop_and_remove
         cmds = ["docker stop amberweb"]
         cmds << "docker rm amberweb"
-        cmds << "docker stop amberdb"
-        cmds << "docker rm amberdb"
-        remote_cmd(cmds.join(" && "))
+        # cmds << "docker stop amberdb"
+        # cmds << "docker rm amberdb"
+        remote_cmd(%Q(bash -c "#{cmds.join(" && ")}"))
       end
 
       def update_project
@@ -93,7 +93,7 @@ module Amber::CMD
         shard = YAML.parse(File.read("./shard.yml"))
         @project_name = shard["name"].to_s
         version = shard["version"].to_s
-        @server_name = "#{project_name}-#{version}"
+        @server_name = "#{project_name}-#{new_version}"
 
         # files = {
         #   "shard.yml" => "version: #{version}",
@@ -119,12 +119,15 @@ module Amber::CMD
         # puts "git push origin v#{new_version}".colorize(:yellow)
         # `git push origin v#{new_version}`
 
-        puts "Releasing app #{project_name}-#{new_version}"
+        # puts "Releasing app #{project_name}-#{new_version}"
 
         create_cloud_server(new_version)
         create_swapfile
         checkout_project
         deploy_project
+        ip = `docker-machine ip #{server_name}`.strip
+        puts "ssh root@#{ip} -i ~/.docker/machine/machines/#{server_name}/id_rsa"
+        puts "open http://#{ip}"
       end
     end
   end
