@@ -30,11 +30,7 @@ module Amber::CMD
           require "./config/*"
           puts Amber::Server.routes.to_json
         CODE
-        tmp_file_name = ".#{SecureRandom.urlsafe_base64}.cr"
-        tmp_file_path = File.join(Dir.current, tmp_file_name)
-        File.write(tmp_file_path, code)
-        routes_json = `crystal #{tmp_file_path}`
-        File.delete(tmp_file_path)
+        routes_json = `crystal eval #{code.split("\n").join(";").inspect}`
         JSON.parse(routes_json)
       end
 
