@@ -30,19 +30,21 @@ module Amber::CMD
           require "./config/*"
           puts Amber::Server.routes.to_json
         CODE
-        routes_json = `crystal eval #{code.split("\n").join(";").inspect}`
+        routes_json = `crystal eval #{code.gsub("\n", ";").inspect}`
         JSON.parse(routes_json)
       end
 
       private def print_routes_table
         table = ShellTable.new
-        table.labels = ["Verb", "Controller", "Action", "Pipeline", "Scope", "Resource"]
+        table.labels = [
+          "Verb", "Controller", "Action", "Pipeline", "Scope", "Resource"
+        ]
         table.label_color = :light_red
         table.border_color = :dark_gray
         routes.each do |k, v|
           row = table.add_row
-          JSON.parse(v.to_s).each do |_, col|
-            row.add_column col.to_s
+          JSON.parse(v.to_s).each do |col, val|
+            row.add_column val.to_s
           end
         end
         puts table
