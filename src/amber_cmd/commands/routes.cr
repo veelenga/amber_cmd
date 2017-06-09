@@ -36,8 +36,8 @@ module Amber::CMD
 
       private def print_routes_table
         table = ShellTable.new
-        table.labels = ["Verb", "Controller", "Action", "Scope", "Pipeline", "Resource"]
-        table.label_color = :yellow
+        table.labels = ["Verb", "Controller", "Action", "Pipeline", "Scope", "Resource"]
+        table.label_color = :light_red
         table.border_color = :dark_gray
         routes.each do |k, v|
           row = table.add_row
