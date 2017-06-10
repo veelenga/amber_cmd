@@ -5,6 +5,10 @@ require "sentry/sentry_command"
 module Amber::CMD
   class MainCommand < Cli::Supercommand
     class Routes < Sentry::SentryCommand
+      RESOURCE_ROUTE_REGEX = /(\w+)\s+\"([^\"]+)\",\s*(\w+)(?:,\s*(\w+)\:\s*\[([^\]]+)\])?/
+      VERB_ROUTE_REGEX = /(\w+)\s+\"([^\"]+)\",\s*(\w+),\s*:(\w+)/
+      PIPE_SCOPE_REGEX = /routes\s+\:(\w+)(?:,\s+\"([^\"]+)\")?/
+
       LABELS         = ["Verb", "Controller", "Action", "Pipeline", "Scope", "Resource"]
       ACTION_MAPPING = {
         "get" => ["index", "show", "new", "edit"],
@@ -45,7 +49,7 @@ module Amber::CMD
       end
 
       private def set_route(l)
-        if md = l.to_s.match(/(\w+)\s+\"([^\"]+)\",\s*(\w+),\s*:(\w+)/)
+        if md = l.to_s.match(VERB_ROUTE_REGEX)
           return unless ACTION_MAPPING.keys.includes?(md[1]?.to_s)
           route = {"Verb" => md[1]?.to_s}
           route["Controller"] = md[3]?.to_s
@@ -56,9 +60,9 @@ module Amber::CMD
           routes << route
         end
       end
-
+      
       private def set_resources(l)
-        if md = l.to_s.match(/(\w+)\s+\"([^\"]+)\",\s*(\w+)(?:,\s*(\w+)\:\s*\[([^\]]+)\])?/)
+        if md = l.to_s.match(RESOURCE_ROUTE_REGEX)
           base_route = md[2]?.to_s
           controller = md[3]?.to_s
           filter = md[4]?
@@ -89,7 +93,7 @@ module Amber::CMD
       end
 
       private def set_pipe(l)
-        if md = l.to_s.match(/routes\s+\:(\w+)(?:,\s+\"([^\"]+)\")?/)
+        if md = l.to_s.match(PIPE_SCOPE_REGEX)
           @current_pipe = md[1]?
           @current_scope = md[2]?
         end
