@@ -6,10 +6,10 @@ module Amber::CMD
   class MainCommand < Cli::Supercommand
     class Routes < Sentry::SentryCommand
       RESOURCE_ROUTE_REGEX = /(\w+)\s+\"([^\"]+)\",\s*(\w+)(?:,\s*(\w+)\:\s*\[([^\]]+)\])?/
-      VERB_ROUTE_REGEX = /(\w+)\s+\"([^\"]+)\",\s*(\w+),\s*:(\w+)/
-      PIPE_SCOPE_REGEX = /routes\s+\:(\w+)(?:,\s+\"([^\"]+)\")?/
+      VERB_ROUTE_REGEX     = /(\w+)\s+\"([^\"]+)\",\s*(\w+),\s*:(\w+)/
+      PIPE_SCOPE_REGEX     = /routes\s+\:(\w+)(?:,\s+\"([^\"]+)\")?/
 
-      LABELS         = ["Verb", "Controller", "Action", "Pipeline", "Scope", "Resource"]
+      LABELS         = ["Verb", "Controller", "Action", "Pipeline", "Scope", "URI Pattern"]
       ACTION_MAPPING = {
         "get" => ["index", "show", "new", "edit"],
         "post" => ["create"], "patch" => ["update"],
@@ -48,25 +48,21 @@ module Amber::CMD
         end
       end
 
-      private def set_route(l)
-        if md = l.to_s.match(VERB_ROUTE_REGEX)
-          return unless ACTION_MAPPING.keys.includes?(md[1]?.to_s)
-          route = {"Verb" => md[1]?.to_s}
-          route["Controller"] = md[3]?.to_s
-          route["Action"] = md[4]?.to_s
-          route["Pipeline"] = current_pipe.to_s
-          route["Scope"] = current_scope.to_s
-          route["Resource"] = md[2]?.to_s
-          routes << route
+      private def set_route(route_string)
+        if route_match = route_string.to_s.match(VERB_ROUTE_REGEX)
+          return unless ACTION_MAPPING.keys.includes?(route_match[1]?.to_s)
+          build_route(
+            verb: route_match[1]?, controller: route_match[3]?,
+            action: route_match[4]?, pipeline: current_pipe,
+            scope: current_scope, uri_pattern: route_match[2]?
+          )
         end
       end
-      
-      private def set_resources(l)
-        if md = l.to_s.match(RESOURCE_ROUTE_REGEX)
-          base_route = md[2]?.to_s
-          controller = md[3]?.to_s
-          filter = md[4]?
-          filter_actions = md[5]?.to_s.gsub(/\:|\s/, "").split(",")
+
+      private def set_resources(resource_string)
+        if route_match = resource_string.to_s.match(RESOURCE_ROUTE_REGEX)
+          filter = route_match[4]?
+          filter_actions = route_match[5]?.to_s.gsub(/\:|\s/, "").split(",")
           ACTION_MAPPING.each do |verb, v|
             v.each do |action|
               case filter
@@ -75,27 +71,35 @@ module Amber::CMD
               when "except"
                 next if filter_actions.includes?(action)
               end
-              route = {"Verb" => verb}
-              route["Controller"] = controller
-              route["Action"] = action
-              route["Pipeline"] = current_pipe.to_s
-              route["Scope"] = current_scope.to_s
-              route["Resource"] = build_resource(base_route, action, current_scope)
-              routes << route
+              build_route(
+                verb: verb, controller: route_match[3]?, action: action,
+                pipeline: current_pipe, scope: current_scope,
+                uri_pattern: build_uri_pattern(route_match[2]?, action, current_scope)
+              )
             end
           end
         end
       end
 
-      private def build_resource(route, action, scope)
+      def build_route(verb, uri_pattern, controller, action, pipeline, scope = "")
+        route = {"Verb" => verb.to_s}
+        route["URI Pattern"] = uri_pattern.to_s
+        route["Controller"] = controller.to_s
+        route["Action"] = action.to_s
+        route["Pipeline"] = pipeline.to_s
+        route["Scope"] = scope.to_s
+        routes << route
+      end
+
+      private def build_uri_pattern(route, action, scope)
         route_end = {"show" => ":id", "new" => "new", "edit" => ":id/edit", "update" => ":id", "destroy" => ":id"}
         [scope, route, route_end[action]?].compact.join("/").gsub("//", "/")
       end
 
-      private def set_pipe(l)
-        if md = l.to_s.match(PIPE_SCOPE_REGEX)
-          @current_pipe = md[1]?
-          @current_scope = md[2]?
+      private def set_pipe(pipe_string)
+        if route_match = pipe_string.to_s.match(PIPE_SCOPE_REGEX)
+          @current_pipe = route_match[1]?
+          @current_scope = route_match[2]?
         end
       end
 
