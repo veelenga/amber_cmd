@@ -15,7 +15,7 @@ module Amber::CMD
       def run
         libs = ["require \"amber\"", "require \"./src/controllers/*\"", "require \"./src/models/*\"", "require \"./src/jobs/*\"", "require \"./src/mailers/*\"", "require \"./src/views/*\"", "require \"./config/*\""] of String
         code = libs.join ';'
-        Icr::Console.new(options.d).start(code)
+        Icr::Console.new(options.d?).start(code)
       end
 
       class Help
