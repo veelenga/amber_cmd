@@ -32,7 +32,7 @@ class <%= @name.capitalize %>Controller < ApplicationController
 
   def edit
     if <%= @name %> = <%= @name.capitalize %>.find params["id"]
-    render("edit.<%= @language %>")
+      render("edit.<%= @language %>")
     else
       flash["warning"] = "<%= @name.capitalize %> with ID #{params["id"]} Not Found"
       redirect_to "/<%= @name %>s"
@@ -41,7 +41,7 @@ class <%= @name.capitalize %>Controller < ApplicationController
 
   def update
     if <%= @name %> = <%= @name.capitalize %>.find(params["id"])
-      <%= @name %>.set_attributes(params.to_h.select(<%= @visible_fields %>)) 
+      <%= @name %>.set_attributes(params.to_h.select(<%= @visible_fields %>))
       if <%= @name %>.valid? && <%= @name %>.save
         flash["success"] = "Updated <%= @name.capitalize %> successfully."
         redirect_to "/<%= @name %>s"
